@@ -55,6 +55,24 @@ class FragmentFactory:
             return "Msg" + self.num_words[num]
         return "Msg" + self.num_words[num - (num % 10)] + self.num_words[num % 10]
 
+    def _find_message(self, fields: List[FieldFragment]) -> MessageFragment:
+        _fields = sorted(fields, lambda f: f.index)
+        for message in self.messages:
+            if message.fields == fields:
+                return message
+            if len(message.fields) != len(fields):
+                continue
+            msg_fields = sorted(message.fields, lambda f: f.index)
+            for idx in range(len(msg_fields)):
+                if _fields[idx].index != msg_fields[idx].index:
+                    continue
+                # fixxx this
+                if _fields[idx].field_type != msg_fields[idx].field_type:
+                    continue
+                if _fields[idx].nullable or msg_fields[idx].nullable:
+                    continue
+
+
     def get_or_create(self, fields: List[FieldFragment]) -> MessageFragment:
         message: MessageFragment = next(
             filter(lambda msg: msg.fields == fields, self.messages), None
