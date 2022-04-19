@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "protobuf2arr-tools"
+version = "0.1.0"
+description = "Utility functions and generators for working with the Google protobuf array format."
+authors = ["Kevin Ramdath <krpent@gmail.com>"]
+repository = "https://github.com/minormending/protobuf2arr-tools"
+readme = "README.md"
+license = "MIT"
+keywords = ["protobuf", "google", "rpc", "protobuf2arr"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.2"
+nose2 = "^0.11.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
