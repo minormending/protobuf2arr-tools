@@ -1,5 +1,28 @@
 from dataclasses import dataclass, field
-from typing import Any, List
+import logging
+from typing import Any, List, Optional
+
+
+PROTO_NONE_TYPE = "string"
+
+
+def nullable_declaration(_type: str) -> str:
+    default_value: str = None
+    if _type == "string":
+        default_value = ""
+    elif _type == "int32":
+        default_value = "0"
+    elif _type == "double":
+        default_value = "0.0"
+    elif _type == "bool":
+        default_value = "false"
+    else:
+        """logging.warn(
+            f"Unable to determine nullable declaration default value for type: {_type}"
+        )"""
+        default_value = ""
+    return f" [(nullable) = '{default_value}']"
+
 
 @dataclass
 class FieldFragment:
@@ -8,11 +31,32 @@ class FieldFragment:
     index: int
     nullable: bool = False
 
+    def declaration(self) -> str:
+        _type = self.field_type or PROTO_NONE_TYPE
+        null_option = nullable_declaration(_type) if self.nullable else ""
+        return f"{_type} {self.name} = {self.index}{null_option};"
+
+    def is_alias(self, _field: "FieldFragment") -> Optional[bool]:
+        if _field.index != self.index:
+            return False
+        elif _field.field_type == self.field_type:
+            return None
+        elif (_field.nullable or self.nullable) and (
+            not _field.field_type or not self.field_type
+        ):
+            return True
+        else:
+            return False
+
 
 @dataclass
 class MessageFragment:
     name: str
     fields: List[FieldFragment] = field(default_factory=lambda: list())
+
+    def declaration(self) -> str:
+        _fields = "\n".join(["\t" + _field.declaration() for _field in self.fields])
+        return f"message {self.name} {{\n{_fields}\n}}"
 
 
 class FragmentFactory:
@@ -56,32 +100,62 @@ class FragmentFactory:
         return "Msg" + self.num_words[num - (num % 10)] + self.num_words[num % 10]
 
     def _find_message(self, fields: List[FieldFragment]) -> MessageFragment:
-        _fields = sorted(fields, lambda f: f.index)
-        for message in self.messages:
+        _fields: List[FieldFragment] = sorted(fields, key=lambda f: f.index)
+        for msg_idx, message in enumerate(self.messages):
             if message.fields == fields:
                 return message
+
             if len(message.fields) != len(fields):
                 continue
-            msg_fields = sorted(message.fields, lambda f: f.index)
+
+            # print(f"Working on {message.name} for {len(self.messages)}")
+            alias_field_indexes: List[int] = []
+            match: bool = True
+            msg_fields: List[FieldFragment] = sorted(
+                message.fields, key=lambda f: f.index
+            )
             for idx in range(len(msg_fields)):
-                if _fields[idx].index != msg_fields[idx].index:
-                    continue
-                # fixxx this
-                if _fields[idx].field_type != msg_fields[idx].field_type:
-                    continue
-                if _fields[idx].nullable or msg_fields[idx].nullable:
+                _field: FieldFragment = _fields[idx]
+                msg_field: FieldFragment = msg_fields[idx]
+                if _field == msg_field:
                     continue
 
+                is_alias = msg_field.is_alias(_field)
+                # rint(f"Working on {message.name} for {len(self.messages)}, field {_field.name} ")
+                if is_alias is True:
+                    print(f"Found alias for {message.name} for {len(self.messages)}")
+                    alias_field_indexes.append(idx)
+                elif is_alias is None:
+                    continue
+                else:
+                    match = False
+                    break
+
+            if not match:
+                continue
+
+            print("BEFORE:", message)
+            for idx in alias_field_indexes:
+                print(f"Updating message {message.name} field {idx+1}")
+                if not _fields[idx].field_type:
+                    self.messages[msg_idx].fields[idx].nullable = True
+                else:
+                    self.messages[msg_idx].fields[idx].field_type = _fields[idx].field_type
+                    self.messages[msg_idx].fields[idx].name = _fields[idx].name
+            print("AFTER:", message)
+            return self.messages[msg_idx]
 
     def get_or_create(self, fields: List[FieldFragment]) -> MessageFragment:
-        message: MessageFragment = next(
+        """message: MessageFragment = next(
             filter(lambda msg: msg.fields == fields, self.messages), None
-        )
+        )"""
+        message: MessageFragment = self._find_message(fields)
         if not message:
             msg_name: str = self._get_message_name()  # f"Msg{len(self.messages)}"
             message = MessageFragment(msg_name, fields=fields)
             self.messages.append(message)
         return message
+
 
 def guess_type(value: Any) -> str:
     if isinstance(value, str):
@@ -111,7 +185,7 @@ def build_message(arr: List[Any]) -> MessageFragment:
             fields.append(_field)
         elif value is None:
             _name: str = f"none{idx + 1}"
-            _field = FieldFragment("string", _name, idx + 1, nullable=True)
+            _field = FieldFragment(None, _name, idx + 1, nullable=True)
             fields.append(_field)
         else:
             _name: str = f"field{idx + 1}"
@@ -123,21 +197,11 @@ def build_message(arr: List[Any]) -> MessageFragment:
     return message
 
 
-def stringify_message(message: MessageFragment) -> str:
-    nullable: str = " [(nullable) = '']"
-    fields: str = "\n".join(
-        [
-            f"\t{_field.field_type} {_field.name} = {_field.index}{nullable if _field.nullable else ''};"
-            for _field in message.fields
-        ]
-    )
-    return f"message {message.name} {{\n{fields}\n}}"
-
-
-with open('data.json','r', encoding="utf-8") as f:
+with open("data.json", "r", encoding="utf-8") as f:
     raw = f.read()
 
 import json
+
 raw = raw.split("\n")[2]
 j = json.loads(raw)
 sub_j = json.loads(j[0][2])
@@ -147,7 +211,7 @@ msg.name = "Main"
 print(msg)
 
 factory.messages.reverse()
-str_messages = "\n".join(stringify_message(m) for m in factory.messages)
+str_messages = "\n".join(m.declaration() for m in factory.messages)
 
 package_name: str = "google_flights"
 content: str = f"""syntax = "proto3";
@@ -156,5 +220,5 @@ package {package_name};
 
 {str_messages}
 """
-with open("top.proto", 'w') as f:
+with open("top2.proto", "w") as f:
     f.write(content)
