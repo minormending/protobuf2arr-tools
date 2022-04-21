@@ -5,20 +5,7 @@ from typing import Any, List, Optional, Union
 
 PROTO_NONE_TYPE = "string"
 
-
-def nullable_declaration(_type: str) -> str:
-    default_value: str = None
-    if _type == "string":
-        default_value = ""
-    elif _type == "int32":
-        default_value = "0"
-    elif _type == "double":
-        default_value = "0.0"
-    elif _type == "bool":
-        default_value = "false"
-    else:  # could me message type
-        default_value = ""
-    return f" [(nullable) = '{default_value}']"
+PROTO_TYPES = ["string", "int32", "double", "bool"]
 
 
 @dataclass
@@ -30,14 +17,6 @@ class FieldFragment:
     index: int
     nullable: bool = False
     repeated: bool = False
-
-    def declaration(self) -> str:
-        """Returns the field protobuf declaration for the message."""
-
-        _type = self.field_type or PROTO_NONE_TYPE
-        null_option = nullable_declaration(_type) if self.nullable else ""
-        repeated_option = "repeated " if self.repeated else ""
-        return f"{repeated_option}{_type} {self.name} = {self.index}{null_option};"
 
     def is_alias(self, _field: "FieldFragment") -> Optional[bool]:
         """Determines if this field is an nullable alias of another field."""
@@ -61,50 +40,10 @@ class MessageFragment:
     name: str
     fields: List[FieldFragment] = field(default_factory=lambda: list())
 
-    def declaration(self) -> str:
-        _fields = "\n".join(["\t" + _field.declaration() for _field in self.fields])
-        return f"message {self.name} {{\n{_fields}\n}}"
-
 
 class FragmentFactory:
     def __init__(self) -> None:
         self.messages: List[MessageFragment] = list()
-        self.num_words = {
-            1: "One",
-            2: "Two",
-            3: "Three",
-            4: "Four",
-            5: "Five",
-            6: "Six",
-            7: "Seven",
-            8: "Eight",
-            9: "Nine",
-            10: "Ten",
-            11: "Eleven",
-            12: "Twelve",
-            13: "Thirteen",
-            14: "Fourteen",
-            15: "Fifteen",
-            16: "Sixteen",
-            17: "Seventeen",
-            18: "Eighteen",
-            19: "Nineteen",
-            20: "Twenty",
-            30: "Thirty",
-            40: "Forty",
-            50: "Fifty",
-            60: "Sixty",
-            70: "Seventy",
-            80: "Eighty",
-            90: "Ninety",
-            0: "Zero",
-        }
-
-    def _get_message_name(self) -> str:
-        num = len(self.messages)
-        if num in self.num_words:
-            return "Msg" + self.num_words[num]
-        return "Msg" + self.num_words[num - (num % 10)] + self.num_words[num % 10]
 
     def _find_message(self, fields: List[FieldFragment]) -> MessageFragment:
         _fields: List[FieldFragment] = sorted(fields, key=lambda f: f.index)
@@ -153,87 +92,141 @@ class FragmentFactory:
     def get_or_create(self, fields: List[FieldFragment]) -> MessageFragment:
         message: MessageFragment = self._find_message(fields)
         if not message:
-            msg_name: str = self._get_message_name()  # f"Msg{len(self.messages)}"
+            msg_name: str = self._get_message_name(fields)
             message = MessageFragment(msg_name, fields=fields)
             self.messages.append(message)
         return message
 
+    def _get_message_name(self, fields: List[FieldFragment]) -> str:
+        """Tries to generate a contextually relevant name for the message."""
 
-def guess_type(value: Any) -> str:
-    if isinstance(value, str):
-        return "string"
-    elif isinstance(value, bool):
-        return "bool"
-    elif isinstance(value, int):
-        return "int32"
-    elif isinstance(value, float):
-        return "double"
-    else:
-        print(type(value), value)
-        return "int32"
-
-
-factory: FragmentFactory = FragmentFactory()
-
-
-def build_message(
-    arr: List[Any], use_repeated_fields: bool = False
-) -> Union[MessageFragment, FieldFragment]:
-    fields: List[FieldFragment] = list()
-    for idx, value in enumerate(arr):
-        if isinstance(value, list):
-            sub_message = build_message(value)
-            if isinstance(sub_message, FieldFragment):
-                _name: str = f"field{idx + 1}"
-                _field = FieldFragment(
-                    sub_message.field_type, _name, idx + 1, repeated=True
-                )
+        if len(fields) == 0:
+            return "Empty"
+        elif len(fields) == 1:
+            _type: str = fields[0].field_type
+            if not _type:
+                return "Null"
+            elif _type not in PROTO_TYPES:  # message type
+                return f"{_type}Container"
             else:
-                _name: str = f"msg{idx + 1}"
-                _field = FieldFragment(sub_message.name, _name, idx + 1)
-        elif value is None:
-            _name: str = f"none{idx + 1}"
-            _field = FieldFragment(None, _name, idx + 1, nullable=True)
+                return _type.capitalize()
         else:
-            _name: str = f"field{idx + 1}"
-            _type: str = guess_type(value)
-            _field = FieldFragment(_type, _name, idx + 1)
-        fields.append(_field)
-
-    is_repeated: bool = (
-        use_repeated_fields
-        and len(set([_field.field_type for _field in fields])) == 1
-        and len(fields) > 1
-    )
-    if is_repeated:
-        return FieldFragment(fields[0].field_type, None, None, repeated=True)
-
-    message: MessageFragment = factory.get_or_create(fields)
-    return message
+            return f"Msg{len(self.messages)}"
 
 
-with open("data.json", "r", encoding="utf-8") as f:
-    raw = f.read()
+class ProtoFileBuilder:
+    def _nullable_declaration(self, _type: str) -> str:
+        default_value: str = None
+        if _type == "string":
+            default_value = ""
+        elif _type == "int32":
+            default_value = "0"
+        elif _type == "double":
+            default_value = "0.0"
+        elif _type == "bool":
+            default_value = "false"
+        else:  # could be message type
+            default_value = ""
+        return f" [(nullable) = '{default_value}']"
 
-import json
+    def _fragment_declaration(self, field: FieldFragment) -> str:
+        """Returns the field protobuf text for the .proto file."""
 
-raw = raw.split("\n")[2]
-j = json.loads(raw)
-sub_j = json.loads(j[0][2])
+        _type = field.field_type or PROTO_NONE_TYPE
+        null_option = self._nullable_declaration(_type) if field.nullable else ""
+        repeated_option = "repeated " if field.repeated else ""
+        return f"{repeated_option}{_type} {field.name} = {field.index}{null_option};"
 
-msg = build_message(sub_j)
-msg.name = "Main"
-print(msg)
+    def _message_declaration(self, message: MessageFragment) -> str:
+        _fields = "\n".join(
+            ["\t" + self._fragment_declaration(_field) for _field in message.fields]
+        )
+        return f"message {message.name} {{\n{_fields}\n}}"
 
-factory.messages.reverse()
-str_messages = "\n".join(m.declaration() for m in factory.messages)
+    def build(self, package_name: str, messages: List[MessageFragment]) -> str:
+        contents: str = "\n".join(
+            [self._message_declaration(message) for message in messages]
+        )
+        return f'syntax = "proto3";\n\npackage {package_name};\n\n{contents}\n'
 
-package_name: str = "google_flights"
-content: str = f"""syntax = "proto3";
 
-package {package_name};
+class ProtoGenerator:
+    def __init__(self) -> None:
+        self.factory: FragmentFactory = FragmentFactory()
 
-{str_messages}
-"""
-with open("top2.proto", "w") as f:
-    f.write(content)
+    def _py_to_proto_field_type(self, value: Any) -> str:
+        if isinstance(value, str):
+            return "string"
+        elif isinstance(value, bool):
+            return "bool"
+        elif isinstance(value, int):
+            return "int32"
+        elif isinstance(value, float):
+            return "double"
+        else:
+            logging.warn(f"Detected unknown python to proto field type: {type(value)}")
+            return "int32"
+
+    def _build_message(
+        self, arr: List[Any], use_repeated_fields: bool = False
+    ) -> Union[MessageFragment, FieldFragment]:
+        fields: List[FieldFragment] = list()
+        for idx, value in enumerate(arr):
+            if isinstance(value, list):
+                sub_message = self._build_message(value)
+                if isinstance(sub_message, FieldFragment):
+                    _name: str = f"field{idx + 1}"
+                    _field = FieldFragment(
+                        sub_message.field_type, _name, idx + 1, repeated=True
+                    )
+                else:
+                    _name: str = f"msg{idx + 1}"
+                    _field = FieldFragment(sub_message.name, _name, idx + 1)
+            elif value is None:
+                _name: str = f"none{idx + 1}"
+                _field = FieldFragment(None, _name, idx + 1, nullable=True)
+            else:
+                _name: str = f"field{idx + 1}"
+                _type: str = self._py_to_proto_field_type(value)
+                _field = FieldFragment(_type, _name, idx + 1)
+            fields.append(_field)
+
+        is_repeated: bool = (
+            use_repeated_fields
+            and len(set([_field.field_type for _field in fields])) == 1
+            and len(fields) > 1
+        )
+        if is_repeated:
+            return FieldFragment(fields[0].field_type, None, None, repeated=True)
+        elif len(fields) == 1 and fields[0].field_type:
+            fields[0].name = "value"
+
+        message: MessageFragment = self.factory.get_or_create(fields)
+        return message
+
+    def build(self, arr: List[Any], package_name: str) -> str:
+        top_message: MessageFragment = self._build_message(arr)
+        top_message.name = "EntryPoint"
+        builder = ProtoFileBuilder()
+        return builder.build(package_name, self.factory.messages)
+
+
+if __name__ == "__main__":
+    with open("data.json", "r", encoding="utf-8") as f:
+        raw = f.read()
+
+    import json
+
+    raw = raw.split("\n")[2]
+    j = json.loads(raw)
+    sub_j = json.loads(j[0][2])
+
+    with open("data_inner.json", "w", encoding="utf-8") as f:
+        f.write(json.dumps(sub_j))
+
+    generator = ProtoGenerator()
+    package_name: str = "google_flights"
+    content = generator.build(sub_j, package_name)
+
+    with open("top2.proto", "w") as f:
+        f.write(content)
