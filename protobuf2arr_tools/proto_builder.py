@@ -212,21 +212,25 @@ class ProtoGenerator:
 
 
 if __name__ == "__main__":
-    with open("data.json", "r", encoding="utf-8") as f:
-        raw = f.read()
-
+    import argparse
     import json
 
-    raw = raw.split("\n")[2]
-    j = json.loads(raw)
-    sub_j = json.loads(j[0][2])
+    parser = argparse.ArgumentParser(description="Build a .proto model for an protobuf array.")
+    parser.add_argument("arr_json", help="File containing the arr protobuf object.")
+    parser.add_argument("output_proto", help="File name to save the output .proto model.")
+    parser.add_argument("--package", help=".proto model package name.")
 
-    with open("data_inner.json", "w", encoding="utf-8") as f:
-        f.write(json.dumps(sub_j))
+    args = parser.parse_args()
+    
+    with open(args.arr_json, "r", encoding="utf-8") as f:
+        raw_arr: str = f.read()
 
-    generator = ProtoGenerator()
-    package_name: str = "google_flights"
-    content = generator.build(sub_j, package_name)
+    arr: List[Any] = json.loads(raw_arr)
+    generator: ProtoGenerator = ProtoGenerator()
+    package_name: str = args.package or "generated"
+    content = generator.build(arr, package_name)
 
-    with open("top2.proto", "w") as f:
+    with open(args.output_proto, "w") as f:
         f.write(content)
+
+    print(f"Generated protobuf model: {args.output_proto}")
