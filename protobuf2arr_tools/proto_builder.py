@@ -23,6 +23,8 @@ def nullable_declaration(_type: str) -> str:
 
 @dataclass
 class FieldFragment:
+    """Represents a field in a protobuf message."""
+
     field_type: str
     name: str
     index: int
@@ -30,12 +32,16 @@ class FieldFragment:
     repeated: bool = False
 
     def declaration(self) -> str:
+        """Returns the field protobuf declaration for the message."""
+
         _type = self.field_type or PROTO_NONE_TYPE
         null_option = nullable_declaration(_type) if self.nullable else ""
         repeated_option = "repeated " if self.repeated else ""
         return f"{repeated_option}{_type} {self.name} = {self.index}{null_option};"
 
     def is_alias(self, _field: "FieldFragment") -> Optional[bool]:
+        """Determines if this field is an nullable alias of another field."""
+
         if _field.index != self.index:
             return False
         elif _field.repeated != self.repeated:
@@ -156,12 +162,12 @@ class FragmentFactory:
 def guess_type(value: Any) -> str:
     if isinstance(value, str):
         return "string"
+    elif isinstance(value, bool):
+        return "bool"
     elif isinstance(value, int):
         return "int32"
     elif isinstance(value, float):
         return "double"
-    elif isinstance(value, bool):
-        return "bool"
     else:
         print(type(value), value)
         return "int32"
