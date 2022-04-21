@@ -16,10 +16,7 @@ def nullable_declaration(_type: str) -> str:
         default_value = "0.0"
     elif _type == "bool":
         default_value = "false"
-    else:
-        """logging.warn(
-            f"Unable to determine nullable declaration default value for type: {_type}"
-        )"""
+    else: # could me message type
         default_value = ""
     return f" [(nullable) = '{default_value}']"
 
@@ -108,7 +105,6 @@ class FragmentFactory:
             if len(message.fields) != len(fields):
                 continue
 
-            # print(f"Working on {message.name} for {len(self.messages)}")
             alias_field_indexes: List[int] = []
             match: bool = True
             msg_fields: List[FieldFragment] = sorted(
@@ -121,10 +117,9 @@ class FragmentFactory:
                     continue
 
                 is_alias = msg_field.is_alias(_field)
-                # rint(f"Working on {message.name} for {len(self.messages)}, field {_field.name} ")
                 if is_alias is True:
-                    print(f"Found alias for {message.name} for {len(self.messages)}")
-                    alias_field_indexes.append(idx)
+                    if msg_field.field_type is None or not msg_field.nullable:
+                        alias_field_indexes.append(idx)
                 elif is_alias is None:
                     continue
                 else:
@@ -134,21 +129,15 @@ class FragmentFactory:
             if not match:
                 continue
 
-            print("BEFORE:", message)
             for idx in alias_field_indexes:
-                print(f"Updating message {message.name} field {idx+1}")
                 if not _fields[idx].field_type:
                     self.messages[msg_idx].fields[idx].nullable = True
                 else:
                     self.messages[msg_idx].fields[idx].field_type = _fields[idx].field_type
                     self.messages[msg_idx].fields[idx].name = _fields[idx].name
-            print("AFTER:", message)
             return self.messages[msg_idx]
 
     def get_or_create(self, fields: List[FieldFragment]) -> MessageFragment:
-        """message: MessageFragment = next(
-            filter(lambda msg: msg.fields == fields, self.messages), None
-        )"""
         message: MessageFragment = self._find_message(fields)
         if not message:
             msg_name: str = self._get_message_name()  # f"Msg{len(self.messages)}"
