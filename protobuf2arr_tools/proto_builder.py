@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 import logging
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Union
 
 
 PROTO_NONE_TYPE = "string"
@@ -16,7 +16,7 @@ def nullable_declaration(_type: str) -> str:
         default_value = "0.0"
     elif _type == "bool":
         default_value = "false"
-    else: # could me message type
+    else:  # could me message type
         default_value = ""
     return f" [(nullable) = '{default_value}']"
 
@@ -27,14 +27,18 @@ class FieldFragment:
     name: str
     index: int
     nullable: bool = False
+    repeated: bool = False
 
     def declaration(self) -> str:
         _type = self.field_type or PROTO_NONE_TYPE
         null_option = nullable_declaration(_type) if self.nullable else ""
-        return f"{_type} {self.name} = {self.index}{null_option};"
+        repeated_option = "repeated " if self.repeated else ""
+        return f"{repeated_option}{_type} {self.name} = {self.index}{null_option};"
 
     def is_alias(self, _field: "FieldFragment") -> Optional[bool]:
         if _field.index != self.index:
+            return False
+        elif _field.repeated != self.repeated:
             return False
         elif _field.field_type == self.field_type:
             return None
@@ -129,11 +133,14 @@ class FragmentFactory:
             if not match:
                 continue
 
+            # update nullable message fields to have proper type and nullable flag
             for idx in alias_field_indexes:
                 if not _fields[idx].field_type:
                     self.messages[msg_idx].fields[idx].nullable = True
                 else:
-                    self.messages[msg_idx].fields[idx].field_type = _fields[idx].field_type
+                    self.messages[msg_idx].fields[idx].field_type = _fields[
+                        idx
+                    ].field_type
                     self.messages[msg_idx].fields[idx].name = _fields[idx].name
             return self.messages[msg_idx]
 
@@ -163,26 +170,39 @@ def guess_type(value: Any) -> str:
 factory: FragmentFactory = FragmentFactory()
 
 
-def build_message(arr: List[Any]) -> MessageFragment:
+def build_message(
+    arr: List[Any], use_repeated_fields: bool = False
+) -> Union[MessageFragment, FieldFragment]:
     fields: List[FieldFragment] = list()
     for idx, value in enumerate(arr):
         if isinstance(value, list):
             sub_message = build_message(value)
-
-            _name: str = f"msg{idx + 1}"
-            _field = FieldFragment(sub_message.name, _name, idx + 1)
-            fields.append(_field)
+            if isinstance(sub_message, FieldFragment):
+                _name: str = f"field{idx + 1}"
+                _field = FieldFragment(
+                    sub_message.field_type, _name, idx + 1, repeated=True
+                )
+            else:
+                _name: str = f"msg{idx + 1}"
+                _field = FieldFragment(sub_message.name, _name, idx + 1)
         elif value is None:
             _name: str = f"none{idx + 1}"
             _field = FieldFragment(None, _name, idx + 1, nullable=True)
-            fields.append(_field)
         else:
             _name: str = f"field{idx + 1}"
             _type: str = guess_type(value)
             _field = FieldFragment(_type, _name, idx + 1)
-            fields.append(_field)
+        fields.append(_field)
 
-    message = factory.get_or_create(fields)
+    is_repeated: bool = (
+        use_repeated_fields
+        and len(set([_field.field_type for _field in fields])) == 1
+        and len(fields) > 1
+    )
+    if is_repeated:
+        return FieldFragment(fields[0].field_type, None, None, repeated=True)
+
+    message: MessageFragment = factory.get_or_create(fields)
     return message
 
 
